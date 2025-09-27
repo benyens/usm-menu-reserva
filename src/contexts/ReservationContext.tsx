@@ -1,4 +1,7 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from './AuthContext';
+import { toast } from '@/components/ui/use-toast';
 
 export type MenuType = 'Normal' | 'Hipocalórico';
 
@@ -13,15 +16,17 @@ export interface Reservation {
 interface ReservationContextType {
   reservations: Reservation[];
   pendingReservations: Array<{ date: Date; menuType: MenuType }>;
+  loading: boolean;
   addToPending: (date: Date, menuType: MenuType) => void;
   removeFromPending: (date: Date) => void;
   updatePendingMenu: (date: Date, menuType: MenuType) => void;
   clearPending: () => void;
-  confirmPendingReservations: () => void;
-  cancelReservation: (id: string) => void;
-  cancelReservationsByPeriod: (startDate: Date, endDate: Date) => void;
-  updateReservationMenu: (id: string, menuType: MenuType) => boolean;
+  confirmPendingReservations: () => Promise<void>;
+  cancelReservation: (id: string) => Promise<void>;
+  cancelReservationsByPeriod: (startDate: Date, endDate: Date) => Promise<void>;
+  updateReservationMenu: (id: string, menuType: MenuType) => Promise<boolean>;
   canModifyReservation: (date: Date) => boolean;
+  fetchReservations: () => Promise<void>;
   resetDemo: () => void;
 }
 
@@ -62,8 +67,10 @@ const createSampleReservations = (): Reservation[] => {
 };
 
 export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [reservations, setReservations] = useState<Reservation[]>(createSampleReservations());
+  const { user, loading: authLoading } = useAuth();
+  const [reservations, setReservations] = useState<Reservation[]>([]);
   const [pendingReservations, setPendingReservations] = useState<Array<{ date: Date; menuType: MenuType }>>([]);
+  const [loading, setLoading] = useState(false);
 
   const addToPending = (date: Date, menuType: MenuType) => {
     setPendingReservations(prev => {
@@ -93,55 +100,185 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
     );
   };
 
+  const fetchReservations = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('reservations')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: true });
+
+      if (error) throw error;
+
+      const formattedReservations: Reservation[] = data.map(r => ({
+        id: r.id,
+        date: new Date(r.date),
+        menuType: r.menu_type as MenuType,
+        status: r.status as 'confirmed' | 'cancelled',
+        createdAt: new Date(r.created_at),
+      }));
+
+      setReservations(formattedReservations);
+    } catch (error) {
+      console.error('Error fetching reservations:', error);
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar las reservas",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const clearPending = () => {
     setPendingReservations([]);
   };
 
-  const confirmPendingReservations = () => {
-    const newReservations = pendingReservations.map(pending => ({
-      id: Date.now().toString() + Math.random().toString(),
-      date: pending.date,
-      menuType: pending.menuType,
-      status: 'confirmed' as const,
-      createdAt: new Date(),
-    }));
+  const confirmPendingReservations = async () => {
+    if (!user || pendingReservations.length === 0) return;
     
-    setReservations(prev => [...prev, ...newReservations]);
-    clearPending();
+    setLoading(true);
+    try {
+      const reservationsToInsert = pendingReservations.map(pending => ({
+        user_id: user.id,
+        date: pending.date.toISOString().split('T')[0],
+        menu_type: pending.menuType,
+        status: 'confirmed'
+      }));
+
+      const { error } = await supabase
+        .from('reservations')
+        .insert(reservationsToInsert);
+
+      if (error) throw error;
+
+      await fetchReservations();
+      clearPending();
+      
+      toast({
+        title: "¡Reservas confirmadas!",
+        description: `Se confirmaron ${pendingReservations.length} reserva(s) exitosamente`,
+      });
+    } catch (error) {
+      console.error('Error confirming reservations:', error);
+      toast({
+        title: "Error",
+        description: "No se pudieron confirmar las reservas",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const cancelReservation = (id: string) => {
-    setReservations(prev => 
-      prev.map(r => 
-        r.id === id ? { ...r, status: 'cancelled' } : r
-      )
-    );
+  const cancelReservation = async (id: string) => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('reservations')
+        .update({ status: 'cancelled' })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      await fetchReservations();
+      
+      toast({
+        title: "Reserva cancelada",
+        description: "La reserva se ha cancelado exitosamente",
+      });
+    } catch (error) {
+      console.error('Error cancelling reservation:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo cancelar la reserva",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const cancelReservationsByPeriod = (startDate: Date, endDate: Date) => {
-    setReservations(prev => 
-      prev.map(r => {
-        const reservationDate = new Date(r.date);
-        if (reservationDate >= startDate && reservationDate <= endDate && r.status === 'confirmed') {
-          return { ...r, status: 'cancelled' };
-        }
-        return r;
-      })
-    );
+  const cancelReservationsByPeriod = async (startDate: Date, endDate: Date) => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+      
+      const { error } = await supabase
+        .from('reservations')
+        .update({ status: 'cancelled' })
+        .eq('user_id', user.id)
+        .eq('status', 'confirmed')
+        .gte('date', startDateStr)
+        .lte('date', endDateStr);
+
+      if (error) throw error;
+
+      await fetchReservations();
+      
+      toast({
+        title: "Reservas canceladas",
+        description: "Las reservas del período seleccionado se han cancelado",
+      });
+    } catch (error) {
+      console.error('Error cancelling reservations by period:', error);
+      toast({
+        title: "Error",
+        description: "No se pudieron cancelar las reservas",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const updateReservationMenu = (id: string, menuType: MenuType): boolean => {
+  const updateReservationMenu = async (id: string, menuType: MenuType): Promise<boolean> => {
+    if (!user) return false;
+    
     const reservation = reservations.find(r => r.id === id);
     if (!reservation || !canModifyReservation(reservation.date)) {
       return false;
     }
     
-    setReservations(prev => 
-      prev.map(r => 
-        r.id === id ? { ...r, menuType } : r
-      )
-    );
-    return true;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('reservations')
+        .update({ menu_type: menuType })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      await fetchReservations();
+      
+      toast({
+        title: "Menú actualizado",
+        description: "El tipo de menú se ha actualizado exitosamente",
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Error updating reservation menu:', error);
+      toast({
+        title: "Error",
+        description: "No se pudo actualizar el menú",
+        variant: "destructive",
+      });
+      return false;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const canModifyReservation = (date: Date): boolean => {
@@ -149,14 +286,24 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
   };
 
   const resetDemo = () => {
-    setReservations(createSampleReservations());
+    setReservations([]);
     clearPending();
   };
+
+  // Fetch reservations when user changes
+  useEffect(() => {
+    if (user && !authLoading) {
+      fetchReservations();
+    } else if (!user) {
+      setReservations([]);
+    }
+  }, [user, authLoading]);
 
   return (
     <ReservationContext.Provider value={{
       reservations,
       pendingReservations,
+      loading,
       addToPending,
       removeFromPending,
       updatePendingMenu,
@@ -166,6 +313,7 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
       cancelReservationsByPeriod,
       updateReservationMenu,
       canModifyReservation,
+      fetchReservations,
       resetDemo,
     }}>
       {children}
