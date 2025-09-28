@@ -139,41 +139,47 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
   };
 
   const confirmPendingReservations = async () => {
-    if (!user || pendingReservations.length === 0) return;
-    
-    setLoading(true);
-    try {
-      const reservationsToInsert = pendingReservations.map(pending => ({
-        user_id: user.id,
-        date: pending.date.toISOString().split('T')[0],
-        menu_type: pending.menuType,
-        status: 'confirmed'
-      }));
+  if (!user || pendingReservations.length === 0) return;
 
-      const { error } = await supabase
-        .from('reservations')
-        .insert(reservationsToInsert);
+  setLoading(true);
+  try {
+    // Normalizamos a 'YYYY-MM-DD' y marcamos todas como 'confirmed'
+    const rows = pendingReservations.map(p => ({
+      user_id: user.id,
+      date: p.date.toISOString().split('T')[0],
+      menu_type: p.menuType,                 // 'Normal' | 'Hipocalórico'
+      status: 'confirmed'
+    }));
 
-      if (error) throw error;
+    // upsert por (user_id, date):
+    // - si no existe => inserta
+    // - si existe cancelada => la "reactiva" + actualiza menu_type
+    // - si existe confirmada => actualiza menu_type
+    const { error } = await supabase
+      .from('reservations')
+      .upsert(rows, { onConflict: 'user_id,date' });
 
-      await fetchReservations();
-      clearPending();
-      
-      toast({
-        title: "¡Reservas confirmadas!",
-        description: `Se confirmaron ${pendingReservations.length} reserva(s) exitosamente`,
-      });
-    } catch (error) {
-      console.error('Error confirming reservations:', error);
-      toast({
-        title: "Error",
-        description: "No se pudieron confirmar las reservas",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (error) throw error;
+
+    await fetchReservations();
+    clearPending();
+
+    toast({
+      title: "¡Reservas confirmadas!",
+      description: `Se confirmaron/actualizaron ${pendingReservations.length} reserva(s)`,
+    });
+  } catch (error: any) {
+    console.error('Error confirming reservations:', error);
+    toast({
+      title: "Error",
+      description: error?.message ?? "No se pudieron confirmar las reservas",
+      variant: "destructive",
+    });
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const cancelReservation = async (id: string) => {
     if (!user) return;
