@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { 
   Calendar, 
   Filter, 
   Trash2, 
-  AlertCircle, 
   UtensilsCrossed,
   Clock,
-  CalendarX
+  CalendarX,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useReservations, MenuType, Reservation } from "@/contexts/ReservationContext";
@@ -41,21 +41,24 @@ const MyReservations = () => {
   const [filter, setFilter] = useState<'all' | 'Normal' | 'Hipocalórico'>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
 
+  // --- helpers de rango (anclados a currentDate) ---
   const getWeekRange = (date: Date) => {
     const startOfWeek = new Date(date);
-    const day = startOfWeek.getDay();
-    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1);
+    const day = startOfWeek.getDay(); // 0 dom ... 6 sab
+    const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // lunes
     startOfWeek.setDate(diff);
-    
+    startOfWeek.setHours(0,0,0,0);
+
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
-    
+    endOfWeek.setHours(23,59,59,999);
+
     return { start: startOfWeek, end: endOfWeek };
   };
 
   const getMonthRange = (date: Date) => {
-    const start = new Date(date.getFullYear(), date.getMonth(), 1);
-    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    const start = new Date(date.getFullYear(), date.getMonth(), 1, 0,0,0,0);
+    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23,59,59,999);
     return { start, end };
   };
 
@@ -63,17 +66,29 @@ const MyReservations = () => {
     return viewType === 'week' ? getWeekRange(currentDate) : getMonthRange(currentDate);
   };
 
+  // --- navegación entre semanas/meses ---
+  const navigatePeriod = (direction: 'prev' | 'next') => {
+    const newDate = new Date(currentDate);
+    if (viewType === 'week') {
+      newDate.setDate(currentDate.getDate() + (direction === 'next' ? 7 : -7));
+    } else {
+      newDate.setMonth(currentDate.getMonth() + (direction === 'next' ? 1 : -1));
+    }
+    setCurrentDate(newDate);
+  };
+
+  // --- filtrado ---
   const getFilteredReservations = () => {
     const { start, end } = getCurrentRange();
-    
-    return reservations.filter(reservation => {
-      const reservationDate = new Date(reservation.date);
-      const isInRange = reservationDate >= start && reservationDate <= end;
-      const matchesFilter = filter === 'all' || reservation.menuType === filter;
-      const isActive = reservation.status === 'confirmed';
-      
-      return isInRange && matchesFilter && isActive;
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    return reservations
+      .filter((reservation) => {
+        const reservationDate = new Date(reservation.date);
+        const isInRange = reservationDate >= start && reservationDate <= end;
+        const matchesFilter = filter === 'all' || reservation.menuType === filter;
+        const isActive = reservation.status === 'confirmed';
+        return isInRange && matchesFilter && isActive;
+      })
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   };
 
   const handleCancelReservation = (id: string) => {
@@ -87,7 +102,6 @@ const MyReservations = () => {
   const handleCancelPeriod = () => {
     const { start, end } = getCurrentRange();
     cancelReservationsByPeriod(start, end);
-    
     const periodText = viewType === 'week' ? 'semana' : 'mes';
     toast({
       title: `${periodText.charAt(0).toUpperCase() + periodText.slice(1)} cancelada`,
@@ -97,10 +111,15 @@ const MyReservations = () => {
 
   const filteredReservations = getFilteredReservations();
   const { start, end } = getCurrentRange();
-  
-  const periodText = viewType === 'week' 
-    ? `Semana del ${start.getDate()} - ${end.getDate()} de ${start.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`
-    : `${start.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`;
+
+  // Título del período
+  const periodText =
+    viewType === 'week'
+      ? `Semana del ${start.getDate()} - ${end.getDate()} de ${start.toLocaleDateString('es-ES', {
+          month: 'long',
+          year: 'numeric',
+        })}`
+      : `${start.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}`;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-muted">
@@ -114,7 +133,7 @@ const MyReservations = () => {
                 Gestiona tus reservas de almuerzo
               </p>
             </div>
-            
+
             <Button 
               onClick={() => navigate('/calendar')}
               className="bg-gradient-primary transition-smooth"
@@ -123,14 +142,15 @@ const MyReservations = () => {
             </Button>
           </div>
 
-          {/* Controls */}
-          <div className="flex flex-col md:flex-row gap-4 mb-6">
-            {/* View Type Toggle */}
+          {/* Controles superiores */}
+          <div className="flex flex-col md:flex-row gap-4 mb-6 items-start md:items-center justify-between">
+            {/* Toggle semana/mes */}
             <div className="flex bg-muted rounded-lg p-1">
               <Button
                 variant={viewType === 'week' ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setViewType('week')}
+                className="transition-smooth"
               >
                 Semana
               </Button>
@@ -138,12 +158,38 @@ const MyReservations = () => {
                 variant={viewType === 'month' ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setViewType('month')}
+                className="transition-smooth"
               >
                 Mes
               </Button>
             </div>
 
-            {/* Filter */}
+            {/* Navegación por período */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigatePeriod('prev')}
+                aria-label={viewType === 'week' ? "Semana anterior" : "Mes anterior"}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+
+              <span className="font-semibold text-lg min-w-[220px] text-center">
+                {periodText}
+              </span>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigatePeriod('next')}
+                aria-label={viewType === 'week' ? "Semana siguiente" : "Mes siguiente"}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Filtro por tipo de menú */}
             <div className="flex bg-muted rounded-lg p-1">
               <Button
                 variant={filter === 'all' ? 'default' : 'ghost'}
@@ -169,7 +215,7 @@ const MyReservations = () => {
               </Button>
             </div>
 
-            {/* Cancel Period Button */}
+            {/* Cancelar período (si hay elementos) */}
             {filteredReservations.length > 0 && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -182,12 +228,12 @@ const MyReservations = () => {
                   <AlertDialogHeader>
                     <AlertDialogTitle>¿Cancelar todas las reservas?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Esta acción cancelará todas las reservas confirmadas de la {viewType === 'week' ? 'semana' : 'mes'} actual. 
-                      Esta acción no se puede deshacer.
+                      Esta acción cancelará todas las reservas confirmadas de la {viewType === 'week' ? 'semana' : 'mes'} actual mostrada.
+                      No se puede deshacer.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogCancel>Volver</AlertDialogCancel>
                     <AlertDialogAction 
                       onClick={handleCancelPeriod}
                       className="bg-destructive hover:bg-destructive/90"
@@ -200,7 +246,7 @@ const MyReservations = () => {
             )}
           </div>
 
-          {/* Period Display */}
+          {/* Resumen del período */}
           <Card className="mb-6 shadow-card">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
@@ -215,15 +261,15 @@ const MyReservations = () => {
             </CardContent>
           </Card>
 
-          {/* Reservations List */}
+          {/* Lista de reservas */}
           {filteredReservations.length === 0 ? (
             <Card className="shadow-card text-center py-12">
               <CardContent>
                 <UtensilsCrossed className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
                 <h2 className="text-2xl font-semibold mb-2">
                   {filter === 'all' 
-                    ? `No tienes reservas esta ${viewType === 'week' ? 'semana' : 'mes'}`
-                    : `No tienes reservas de menú ${filter} esta ${viewType === 'week' ? 'semana' : 'mes'}`
+                    ? `No tienes reservas en esta ${viewType === 'week' ? 'semana' : 'vista mensual'}`
+                    : `No tienes reservas de menú ${filter} en esta ${viewType === 'week' ? 'semana' : 'vista mensual'}`
                   }
                 </h2>
                 <p className="text-muted-foreground mb-6">
@@ -244,9 +290,9 @@ const MyReservations = () => {
                         <div className="bg-primary/10 p-3 rounded-full">
                           <Calendar className="h-6 w-6 text-primary" />
                         </div>
-                        
+
                         <div>
-                          <h3 className="font-semibold text-lg">
+                          <h3 className="font-semibold text-lg capitalize">
                             {new Date(reservation.date).toLocaleDateString('es-ES', {
                               weekday: 'long',
                               year: 'numeric',
@@ -254,16 +300,15 @@ const MyReservations = () => {
                               day: 'numeric'
                             })}
                           </h3>
-                          
+
                           <div className="flex items-center space-x-4 mt-2">
                             <div className="flex items-center space-x-2">
-                              <UtensilsCrossed className="h-4 w-4 text-muted-foreground" />
                               <span className="text-sm text-muted-foreground">Menú:</span>
                               <Badge variant={reservation.menuType === 'Normal' ? 'default' : 'secondary'}>
                                 {reservation.menuType}
                               </Badge>
                             </div>
-                            
+
                             {!canModifyReservation(new Date(reservation.date)) && (
                               <div className="flex items-center space-x-2 text-accent">
                                 <Clock className="h-4 w-4" />
@@ -273,7 +318,7 @@ const MyReservations = () => {
                           </div>
                         </div>
                       </div>
-                      
+
                       <div className="flex items-center space-x-3">
                         <Button
                           variant="outline"
@@ -282,7 +327,7 @@ const MyReservations = () => {
                         >
                           Ver Detalle
                         </Button>
-                        
+
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
@@ -297,12 +342,13 @@ const MyReservations = () => {
                             <AlertDialogHeader>
                               <AlertDialogTitle>¿Cancelar reserva?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                ¿Estás seguro de que quieres cancelar la reserva para el{' '}
+                                ¿Cancelar la reserva del{" "}
                                 {new Date(reservation.date).toLocaleDateString('es-ES', {
                                   weekday: 'long',
                                   day: 'numeric',
                                   month: 'long'
-                                })}? Esta acción no se puede deshacer.
+                                })}?
+                                Esta acción no se puede deshacer.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

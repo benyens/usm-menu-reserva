@@ -23,9 +23,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Demo user credentials for auto-login
 const DEMO_USER = {
-  email: 'juan.perez@usm.cl',
+  email: 'juan.gaete@usm.cl',
   password: 'demo123456',
-  full_name: 'Juan Pérez González',
+  full_name: 'Juan Gaete Vega',
   employee_id: 'USM2024001',
   department: 'Informática'
 };

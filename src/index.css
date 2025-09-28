@@ -70,6 +70,7 @@ All colors MUST be HSL.
     --sidebar-border: 220 13% 91%;
 
     --sidebar-ring: 217.2 91.2% 59.8%;
+    
   }
 
   .dark {
@@ -107,7 +108,10 @@ All colors MUST be HSL.
   * {
     @apply border-border;
   }
-
+  header{
+    @apply bg-primary text-primary-foreground;
+    font-family: 'Roboto', system-ui, -apple-system, sans-serif;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
