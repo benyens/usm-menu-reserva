@@ -21,15 +21,6 @@ interface UserProfile {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Demo user credentials for auto-login
-const DEMO_USER = {
-  email: 'juan.gaete@usm.cl',
-  password: 'demo123456',
-  full_name: 'Juan Gaete Vega',
-  employee_id: 'USM2024001',
-  department: 'Informática'
-};
-
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -39,19 +30,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Fetch user profile
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single();
-          
-          setProfile(profileData);
+          // Fetch user profile with setTimeout to avoid auth callback issues
+          setTimeout(() => {
+            supabase
+              .from('profiles')
+              .select('*')
+              .eq('user_id', session.user.id)
+              .single()
+              .then(({ data: profileData }) => {
+                setProfile(profileData);
+              });
+          }, 0);
         } else {
           setProfile(null);
         }
@@ -60,64 +54,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     );
 
-    // Auto-login demo user
-    const autoLogin = async () => {
-      // Check for existing session first
-      const { data: { session: existingSession } } = await supabase.auth.getSession();
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
       
-      if (existingSession) {
-        setSession(existingSession);
-        setUser(existingSession.user);
-        
-        // Fetch profile
-        const { data: profileData } = await supabase
+      if (session?.user) {
+        supabase
           .from('profiles')
           .select('*')
-          .eq('user_id', existingSession.user.id)
-          .single();
-        
-        setProfile(profileData);
-        setLoading(false);
-        return;
+          .eq('user_id', session.user.id)
+          .single()
+          .then(({ data: profileData }) => {
+            setProfile(profileData);
+          });
       }
-
-      // Try to sign in with demo credentials
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: DEMO_USER.email,
-        password: DEMO_USER.password,
-      });
-
-      if (signInError) {
-        // If sign in fails, try to create the demo user
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: DEMO_USER.email,
-          password: DEMO_USER.password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/`,
-            data: {
-              full_name: DEMO_USER.full_name,
-              employee_id: DEMO_USER.employee_id,
-              department: DEMO_USER.department
-            }
-          }
-        });
-
-        if (signUpData.user && !signUpError) {
-          // Create profile for the new user
-          await supabase
-            .from('profiles')
-            .insert({
-              user_id: signUpData.user.id,
-              email: DEMO_USER.email,
-              full_name: DEMO_USER.full_name,
-              employee_id: DEMO_USER.employee_id,
-              department: DEMO_USER.department
-            });
-        }
-      }
-    };
-
-    autoLogin();
+      
+      setLoading(false);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
