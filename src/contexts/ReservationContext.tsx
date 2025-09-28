@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './AuthContext';
 import { toast } from '@/components/ui/use-toast';
+import { parseYMD, toYMD } from '@/utils/date';
+import { parse } from 'path';
 
 export type MenuType = 'Normal' | 'Hipocalórico';
 
@@ -115,7 +117,7 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
 
       const formattedReservations: Reservation[] = data.map(r => ({
         id: r.id,
-        date: new Date(r.date),
+        date: parseYMD(r.date), // 'YYYY-MM-DD' to Date
         menuType: r.menu_type as MenuType,
         status: r.status as 'confirmed' | 'cancelled',
         createdAt: new Date(r.created_at),
@@ -139,46 +141,71 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
   };
 
   const confirmPendingReservations = async () => {
-  if (!user || pendingReservations.length === 0) return;
+    if (!user || pendingReservations.length === 0) return;
 
-  setLoading(true);
-  try {
-    // Normalizamos a 'YYYY-MM-DD' y marcamos todas como 'confirmed'
-    const rows = pendingReservations.map(p => ({
-      user_id: user.id,
-      date: p.date.toISOString().split('T')[0],
-      menu_type: p.menuType,                 // 'Normal' | 'Hipocalórico'
-      status: 'confirmed'
-    }));
+    setLoading(true);
+    try {
+      // 1) Prepara fechas por tipo de menú (para reactivar en lote)
+      const byMenu: Record<MenuType, string[]> = { Normal: [], Hipocalórico: [] };
+      for (const p of pendingReservations) {
+        byMenu[p.menuType].push(toYMD(p.date)); // 'YYYY-MM-DD'
+      }
 
-    // upsert por (user_id, date):
-    // - si no existe => inserta
-    // - si existe cancelada => la "reactiva" + actualiza menu_type
-    // - si existe confirmada => actualiza menu_type
-    const { error } = await supabase
-      .from('reservations')
-      .upsert(rows, { onConflict: 'user_id,date' });
+      // 2) REACTIVAR canceladas (update status + menu_type)
+      //    Hacemos un UPDATE por cada grupo de menú para poder setear menu_type correcto
+      for (const menuType of Object.keys(byMenu) as MenuType[]) {
+        const dates = byMenu[menuType];
+        if (dates.length === 0) continue;
 
-    if (error) throw error;
+        const { error: updErr } = await supabase
+          .from('reservations')
+          .update({ status: 'confirmed', menu_type: menuType })
+          .eq('user_id', user.id)
+          .eq('status', 'cancelled')
+          .in('date', dates);
 
-    await fetchReservations();
-    clearPending();
+        if (updErr) throw updErr;
+      }
 
-    toast({
-      title: "¡Reservas confirmadas!",
-      description: `Se confirmaron/actualizaron ${pendingReservations.length} reserva(s)`,
-    });
-  } catch (error: any) {
-    console.error('Error confirming reservations:', error);
-    toast({
-      title: "Error",
-      description: error?.message ?? "No se pudieron confirmar las reservas",
-      variant: "destructive",
-    });
-  } finally {
-    setLoading(false);
-  }
-};
+      // 3) INSERTAR las que no existan (si hay duplicado, lo ignoramos)
+      //    (Si tienes trigger que setea NEW.user_id := auth.uid(), puedes quitar user_id aquí)
+      const rows = pendingReservations.map(p => ({
+        user_id: user.id,
+        date: toYMD(p.date), // 'YYYY-MM-DD'
+        menu_type: p.menuType,
+        status: 'confirmed',
+      }));
+
+      const { error: insErr } = await supabase
+        .from('reservations')
+        .insert(rows)
+        .select();
+
+      // Si hay duplicados por UNIQUE(user_id,date), los ignoramos:
+      // (en Supabase/PostgREST el code suele ser '23505')
+      // Si quieres ser explícito:
+      // if (insErr && insErr.code !== '23505') throw insErr;
+      if (insErr && insErr.code && insErr.code !== '23505') throw insErr;
+
+      await fetchReservations();
+      clearPending();
+
+      toast({
+        title: "¡Reservas confirmadas!",
+        description: `Se confirmaron/actualizaron ${pendingReservations.length} reserva(s)`,
+      });
+    } catch (error: any) {
+      console.error('confirmPendingReservations error:', error);
+      toast({
+        title: "Error",
+        description: error?.message ?? "No se pudieron confirmar las reservas",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
 
   const cancelReservation = async (id: string) => {
@@ -217,8 +244,8 @@ export const ReservationProvider: React.FC<{ children: ReactNode }> = ({ childre
     
     setLoading(true);
     try {
-      const startDateStr = startDate.toISOString().split('T')[0];
-      const endDateStr = endDate.toISOString().split('T')[0];
+      const startDateStr = toYMD(startDate);
+      const endDateStr = toYMD(endDate);
       
       const { error } = await supabase
         .from('reservations')

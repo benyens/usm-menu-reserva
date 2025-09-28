@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calendar, Clock, Users, AlertCircle } from "lucide-react";
+import { Calendar, Clock, AlertCircle , ClipboardList} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useReservations } from "@/contexts/ReservationContext";
+
 
 const Home = () => {
   const navigate = useNavigate();
@@ -52,7 +53,7 @@ const Home = () => {
             <Card className="shadow-card hover:shadow-hover transition-smooth">
               <CardHeader className="text-center">
                 <div className="mx-auto w-16 h-16 bg-gradient-accent rounded-full flex items-center justify-center mb-4">
-                  <Users className="h-8 w-8 text-accent-foreground" />
+                  <ClipboardList className="h-8 w-8 text-accent-foreground" />   {/* <-- cambiado */}
                 </div>
                 <CardTitle className="text-2xl">Mis Reservas</CardTitle>
               </CardHeader>
@@ -110,17 +111,6 @@ const Home = () => {
                 </p>
               </CardContent>
             </Card>
-          </div>
-
-          {/* Demo Reset */}
-          <div className="text-center">
-            <Button 
-              variant="outline" 
-              onClick={resetDemo}
-              className="text-muted-foreground hover:text-foreground transition-smooth"
-            >
-              Reiniciar Demo
-            </Button>
           </div>
         </div>
       </div>

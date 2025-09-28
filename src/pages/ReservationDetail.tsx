@@ -79,11 +79,12 @@ const ReservationDetail = () => {
   };
 
   const handleUpdateMenu = (newMenuType: MenuType) => {
-    setIsUpdatingMenu(true);
-    
-    setTimeout(() => {
-      const success = updateReservationMenu(reservation.id, newMenuType);
-      
+  setIsUpdatingMenu(true);
+
+  setTimeout(async () => {
+    try {
+      const success = await updateReservationMenu(reservation.id, newMenuType);
+
       if (success) {
         toast({
           title: "Menú actualizado",
@@ -96,10 +97,17 @@ const ReservationDetail = () => {
           description: "No es posible modificar reservas con menos de 48h de anticipación",
         });
       }
-      
+    } catch (e: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: e?.message ?? "No se pudo actualizar el menú",
+      });
+    } finally {
       setIsUpdatingMenu(false);
-    }, 500);
-  };
+    }
+  }, 500);
+};
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('es-ES', {
