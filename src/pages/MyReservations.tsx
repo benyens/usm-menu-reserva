@@ -37,7 +37,7 @@ const MyReservations = () => {
     canModifyReservation 
   } = useReservations();
 
-  const [viewType, setViewType] = useState<'week' | 'month'>('week');
+  const [viewType, setViewType] = useState<'week' | 'month'>('month');
   const [filter, setFilter] = useState<'all' | 'Normal' | 'Hipocalórico'>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
 

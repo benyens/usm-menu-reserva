@@ -21,7 +21,7 @@ const Calendar = () => {
   } = useReservations();
 
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewType, setViewType] = useState<'week' | 'month'>('week');
+  const [viewType, setViewType] = useState<'week' | 'month'>('month');
   const [activeMenuDate, setActiveMenuDate] = useState<Date | null>(null); // <-- para popover en días reservados
 
   // Helpers
