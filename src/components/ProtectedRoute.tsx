@@ -16,7 +16,7 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
     );
   }
 
-  if (!user) {
+  if (!user) { // Cambiar a user cuando se use autenticación real
     return <Navigate to="/auth" replace />;
   }
 

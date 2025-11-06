@@ -10,10 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { z } from 'zod';
 
+
+
+
 const loginSchema = z.object({
   email: z.string().trim().email('Email inválido').max(255, 'Email muy largo'),
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres').max(100, 'Contraseña muy larga')
 });
+
 
 const signupSchema = loginSchema.extend({
   fullName: z.string().trim().min(2, 'El nombre debe tener al menos 2 caracteres').max(100, 'Nombre muy largo'),
@@ -26,6 +30,89 @@ const Auth = () => {
   const { user, loading } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleTestLogin = async () => {
+  const email = 'test@usm.cl';
+  const password = '123456';
+
+  setIsLoading(true);
+  try {
+    // 1) Intentar login directo
+    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (!signInErr) {
+      // Ya existe y se logueó
+      toast({ title: 'Bienvenido', description: 'Sesión iniciada como usuario de prueba' });
+      navigate('/');
+      return;
+    }
+
+    // 2) Si falla por credenciales, probamos registrar
+    if (signInErr.message === 'Invalid login credentials') {
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: window.location.origin, // ok si tienes confirm OFF
+          data: {
+            full_name: 'Usuario de Prueba',
+            employee_id: 'TEST001',
+            department: 'Informática',
+            role: 'tester',
+          },
+        },
+      });
+
+      // Si ya estaba registrado, seguimos; si hay otro error, salimos
+      if (signUpErr && signUpErr.message !== 'User already registered') {
+        toast({ title: 'Error creando usuario de prueba', description: signUpErr.message, variant: 'destructive' });
+        return;
+      }
+
+      // 3) Iniciar sesión ahora que existe
+      const { data: afterData, error: afterErr } = await supabase.auth.signInWithPassword({ email, password });
+      if (afterErr) {
+        toast({ title: 'No se pudo iniciar sesión', description: afterErr.message, variant: 'destructive' });
+        return;
+      }
+
+      // 4) Asegurar/crear perfil en `profiles` (después de tener sesión para pasar RLS)
+      const userId = afterData?.user?.id;
+      if (userId) {
+        const { error: upsertErr } = await supabase
+          .from('profiles')
+          .upsert(
+            {
+              user_id: userId,
+              email,
+              full_name: 'Usuario de Prueba',
+              employee_id: 'TEST001',
+              department: 'Informática',
+              role: 'tester',
+            },
+            { onConflict: 'user_id' }
+          );
+        if (upsertErr) {
+          // no bloquea el login si falla el perfil, solo avisa
+          console.warn('profiles upsert error:', upsertErr);
+        }
+      }
+
+      toast({ title: 'Bienvenido', description: 'Sesión iniciada como usuario de prueba' });
+      navigate('/');
+      return;
+    }
+
+    // 5) Otros errores de login
+    toast({ title: 'Error al iniciar sesión', description: signInErr.message, variant: 'destructive' });
+  } finally {
+    setIsLoading(false);
+  }
+};
+
 
   // Redirect if already logged in
   useEffect(() => {
@@ -205,6 +292,14 @@ const Auth = () => {
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full mt-2"
+                  onClick={handleTestLogin}
+                >
+                  Entrar como Usuario de Prueba
                 </Button>
               </form>
             </TabsContent>
